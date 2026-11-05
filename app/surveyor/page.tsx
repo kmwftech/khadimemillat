@@ -27,11 +27,31 @@ export default async function SurveyorDashboard() {
 
   await connectDB();
   
-  const user = await User.findOne({ clerkUserId: userId });
+  let user = await User.findOne({ clerkUserId: userId });
 
-  // Get assigned requests
+  // If user doesn't exist in MongoDB, create them
+  if (!user) {
+    const { clerkClient } = await import('@clerk/nextjs/server');
+    const client = await clerkClient();
+    const clerkUser = await client.users.getUser(userId);
+
+    user = await User.create({
+      clerkUserId: userId,
+      name: clerkUser.firstName && clerkUser.lastName 
+        ? `${clerkUser.firstName} ${clerkUser.lastName}` 
+        : (clerkUser.username || 'Surveyor'),
+      email: clerkUser.emailAddresses?.[0]?.emailAddress,
+      role: 'surveyor'
+    });
+  }
+
+  // Get assigned requests (handle both Clerk userId string and Mongo ObjectId)
   const assignedRequests = await SponsorshipRequest.find({
-    assignedOfficer: user._id,
+    $or: [
+      { assignedOfficer: user._id.toString() },
+      { assignedOfficer: user._id },
+      { assignedOfficer: userId }
+    ],
     status: 'assigned'
   }).sort({ priority: -1, createdAt: -1 });
 
@@ -43,7 +63,10 @@ export default async function SurveyorDashboard() {
   // Get statistics
   const stats = {
     pending: assignedRequests.length,
-    completed: await SurveyResponse.countDocuments({ officerId: user._id, status: 'submitted' }),
+    completed: await SurveyResponse.countDocuments({ 
+      officerId: user._id, 
+      status: { $in: ['submitted', 'verified', 'approved'] } 
+    }),
     inProgress: await SurveyResponse.countDocuments({ officerId: user._id, status: 'draft' }),
     thisMonth: await SurveyResponse.countDocuments({
       officerId: user._id,
@@ -176,11 +199,16 @@ export default async function SurveyorDashboard() {
 
         {/* Recent Surveys */}
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between pb-3">
             <CardTitle className="flex items-center gap-2">
               <FileText className="w-5 h-5" />
               Recent Surveys
             </CardTitle>
+            <Button variant="outline" size="sm" asChild>
+              <Link href="/surveyor/surveys">
+                View All Surveys
+              </Link>
+            </Button>
           </CardHeader>
           <CardContent>
             {completedSurveys.length === 0 ? (
@@ -190,52 +218,58 @@ export default async function SurveyorDashboard() {
               </div>
             ) : (
               <div className="space-y-4">
-                {completedSurveys.map((survey) => (
-                  <div key={survey._id} className="border rounded-lg p-4">
-                    <div className="flex justify-between items-start mb-2">
-                      <div>
-                        <h4 className="font-medium">{survey.personalDetails.fullName}</h4>
-                        <p className="text-sm text-muted-foreground">
-                          Survey ID: {survey.surveyId}
-                        </p>
-                      </div>
-                      <div className="flex gap-2">
-                        {(survey.status === 'draft' || survey.status === 'submitted') && (
-                          <Badge variant="outline" className="text-blue-600 border-blue-600">
-                            Editable
-                          </Badge>
-                        )}
-                        <Badge variant={
-                          survey.status === 'verified' ? 'default' :
-                          survey.status === 'submitted' ? 'secondary' :
-                          survey.status === 'rejected' ? 'destructive' : 'outline'
-                        }>
-                          {survey.status}
-                        </Badge>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
-                      <Calendar className="w-4 h-4" />
-                      <span>{new Date(survey.createdAt).toLocaleDateString()}</span>
-                    </div>
+                {completedSurveys.map((survey) => {
+                  const requestIdStr = survey.requestId?._id 
+                    ? survey.requestId._id.toString() 
+                    : survey.requestId?.toString();
 
-                    <div className="flex gap-2">
-                      {(survey.status === 'draft' || survey.status === 'submitted') && (
-                        <Button size="sm" asChild>
-                          <Link href={`/surveyor/survey/${(survey.requestId as any)._id}`}>
-                            Edit Survey
+                  return (
+                    <div key={survey._id.toString()} className="border rounded-lg p-4">
+                      <div className="flex justify-between items-start mb-2">
+                        <div>
+                          <h4 className="font-medium">{survey.personalDetails?.fullName || 'N/A'}</h4>
+                          <p className="text-sm text-muted-foreground">
+                            Survey ID: {survey.surveyId}
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          {(survey.status === 'draft' || survey.status === 'submitted') && (
+                            <Badge variant="outline" className="text-blue-600 border-blue-600">
+                              Editable
+                            </Badge>
+                          )}
+                          <Badge variant={
+                            survey.status === 'verified' ? 'default' :
+                            survey.status === 'submitted' ? 'secondary' :
+                            survey.status === 'rejected' ? 'destructive' : 'outline'
+                          }>
+                            {survey.status}
+                          </Badge>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
+                        <Calendar className="w-4 h-4" />
+                        <span>{new Date(survey.createdAt).toLocaleDateString()}</span>
+                      </div>
+
+                      <div className="flex gap-2">
+                        {(survey.status === 'draft' || survey.status === 'submitted') && requestIdStr && (
+                          <Button size="sm" asChild>
+                            <Link href={`/surveyor/survey/${requestIdStr}`}>
+                              Edit Survey
+                            </Link>
+                          </Button>
+                        )}
+                        <Button size="sm" variant="outline" asChild>
+                          <Link href={`/surveyor/survey/view/${survey._id.toString()}`}>
+                            View Survey
                           </Link>
                         </Button>
-                      )}
-                      <Button size="sm" variant="outline" asChild>
-                        <Link href={`/surveyor/survey/view/${survey._id}`}>
-                          View Survey
-                        </Link>
-                      </Button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </CardContent>

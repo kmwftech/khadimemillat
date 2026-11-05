@@ -57,31 +57,48 @@ export default async function SurveyPage({ params }: PageProps) {
   const isAssignedOfficer = 
     request.assignedOfficer?.toString() === user._id?.toString() || // MongoDB ObjectId comparison
     request.assignedOfficer?.toString() === userId; // Clerk user ID comparison
-  const hasAdminAccess = ['admin', 'moderator', 'surveyor'].includes(userRole || '');
+  const isAdminOrModerator = ['admin', 'moderator'].includes(userRole || '') || ['admin', 'moderator'].includes(user.role);
+  const hasAdminAccess = ['admin', 'moderator', 'surveyor'].includes(userRole || '') || ['admin', 'moderator', 'surveyor'].includes(user.role);
   
   if (!isAssignedOfficer && !hasAdminAccess) {
     redirect("/unauthorized");
   }
 
   // Check if survey already exists
-  const existingSurvey = await SurveyResponse.findOne({ 
-    requestId: request._id,
-    officerId: user._id 
-  });
+  // For admins/moderators, find the survey associated with this request regardless of officerId
+  const existingSurvey = await SurveyResponse.findOne(
+    isAdminOrModerator
+      ? { requestId: request._id }
+      : { 
+          requestId: request._id,
+          $or: [
+            { officerId: user._id },
+            { officerId: user._id.toString() }
+          ]
+        }
+  );
+
+  const officerIdToUse = existingSurvey?.officerId 
+    ? existingSurvey.officerId.toString() 
+    : user._id.toString();
 
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2">Field Survey</h1>
+        <h1 className="text-3xl font-bold mb-2">
+          {existingSurvey ? "Update Survey" : "Field Survey"}
+        </h1>
         <p className="text-muted-foreground">
-          Complete the detailed survey for {request.applicantName}
+          {existingSurvey 
+            ? `Update survey details for ${request.applicantName}` 
+            : `Complete the detailed survey for ${request.applicantName}`}
         </p>
       </div>
 
       <SurveyForm 
         request={JSON.parse(JSON.stringify(request))}
         existingSurvey={existingSurvey ? JSON.parse(JSON.stringify(existingSurvey)) : null}
-        officerId={user._id.toString()}
+        officerId={officerIdToUse}
       />
     </div>
   );

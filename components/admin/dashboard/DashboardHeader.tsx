@@ -2,7 +2,8 @@
 
 import React from 'react'
 import { Button } from '@/components/ui/button'
-import { RefreshCw, TrendingUp } from 'lucide-react'
+import { RefreshCw, TrendingUp, ClipboardCheck, LayoutGrid } from 'lucide-react'
+import Link from 'next/link'
 import { DashboardStats } from '@/types/dashboard'
 import DashboardStatsComponent from './DashboardStats'
 import { RESPONSIVE_CLASSES, TOUCH_TARGETS } from '@/lib/utils/responsive'
@@ -47,8 +48,32 @@ export default function DashboardHeader({
           </p>
         </div>
         
-        {/* Refresh button with responsive sizing */}
-        <div className="flex-shrink-0 animate-slide-in-down" style={{ animationDelay: '100ms' }}>
+        {/* Header actions with responsive sizing */}
+        <div className="flex items-center gap-2 flex-wrap animate-slide-in-down" style={{ animationDelay: '100ms' }}>
+          <Button
+            variant="outline"
+            size="sm"
+            asChild
+            className={`${TOUCH_TARGETS.comfortable} button-press hover-lift transition-all duration-200`}
+          >
+            <Link href="/admin/surveys" className="flex items-center gap-1.5">
+              <ClipboardCheck className="h-4 w-4 text-primary" />
+              <span>Surveys</span>
+            </Link>
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            asChild
+            className={`${TOUCH_TARGETS.comfortable} button-press hover-lift transition-all duration-200`}
+          >
+            <Link href="/admin/navigation" className="flex items-center gap-1.5">
+              <LayoutGrid className="h-4 w-4 text-muted-foreground" />
+              <span className="hidden sm:inline">All Tools</span>
+            </Link>
+          </Button>
+
           <Button
             onClick={onRefresh}
             disabled={loading || refreshing}

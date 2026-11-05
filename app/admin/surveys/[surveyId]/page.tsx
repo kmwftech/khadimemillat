@@ -168,7 +168,7 @@ export default async function AdminSurveyPage({ params }: AdminSurveyPageProps) 
             {survey.status}
           </Badge>
           
-          {survey.status === 'submitted' && (
+          {['draft', 'submitted', 'revision_required', 'verified'].includes(survey.status) && request?._id && (
             <Button asChild>
               <Link href={`/surveyor/survey/${request._id}`}>
                 <Edit className="w-4 h-4 mr-2" />

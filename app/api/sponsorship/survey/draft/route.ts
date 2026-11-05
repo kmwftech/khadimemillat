@@ -28,15 +28,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const isAdminOrModerator = ['admin', 'moderator'].includes(user.role);
+
     // Check if a draft already exists (including submitted surveys that can be edited)
-    let existingDraft = await SurveyResponse.findOne({
-      requestId,
-      officerId: user._id,
-      $or: [
-        { status: 'draft' },
-        { status: 'submitted' } // Allow editing submitted surveys until verified
-      ]
-    });
+    let existingDraft = await SurveyResponse.findOne(
+      isAdminOrModerator
+        ? {
+            requestId,
+            $or: [
+              { status: 'draft' },
+              { status: 'submitted' }
+            ]
+          }
+        : {
+            requestId,
+            officerId: user._id,
+            $or: [
+              { status: 'draft' },
+              { status: 'submitted' }
+            ]
+          }
+    );
 
     if (existingDraft) {
       // Update existing draft
@@ -168,14 +180,26 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const draft = await SurveyResponse.findOne({
-      requestId,
-      officerId: user._id,
-      $or: [
-        { status: 'draft' },
-        { status: 'submitted' } // Allow retrieving submitted surveys for editing
-      ]
-    });
+    const isAdminOrModerator = ['admin', 'moderator'].includes(user.role);
+
+    const draft = await SurveyResponse.findOne(
+      isAdminOrModerator
+        ? {
+            requestId,
+            $or: [
+              { status: 'draft' },
+              { status: 'submitted' }
+            ]
+          }
+        : {
+            requestId,
+            officerId: user._id,
+            $or: [
+              { status: 'draft' },
+              { status: 'submitted' }
+            ]
+          }
+    );
 
     if (!draft) {
       return NextResponse.json(

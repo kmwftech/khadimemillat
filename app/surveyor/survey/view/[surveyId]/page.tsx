@@ -86,8 +86,10 @@ export default async function SurveyViewPage({ params }: SurveyViewPageProps) {
   }
 
   const request = survey.requestId as any;
-  const canEdit = (survey.status === 'draft' || survey.status === 'submitted') && 
-                  survey.officerId._id.toString() === user._id.toString();
+  const isAdminOrModerator = ['admin', 'moderator'].includes(user.role);
+  const isOwnSurvey = survey.officerId?._id?.toString() === user._id?.toString();
+  const canEdit = (['draft', 'submitted'].includes(survey.status) && (isOwnSurvey || isAdminOrModerator)) ||
+                  (isAdminOrModerator && ['revision_required', 'verified'].includes(survey.status));
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -95,9 +97,9 @@ export default async function SurveyViewPage({ params }: SurveyViewPageProps) {
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-4">
           <Button variant="outline" size="sm" asChild>
-            <Link href="/surveyor">
+            <Link href="/surveyor/surveys">
               <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Dashboard
+              All Surveys
             </Link>
           </Button>
           <div>
@@ -117,7 +119,7 @@ export default async function SurveyViewPage({ params }: SurveyViewPageProps) {
             {survey.status}
           </Badge>
           
-          {canEdit && (
+          {canEdit && request?._id && (
             <Button asChild>
               <Link href={`/surveyor/survey/${request._id}`}>
                 <Edit className="w-4 h-4 mr-2" />

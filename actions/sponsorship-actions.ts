@@ -114,14 +114,24 @@ export async function submitSurveyResponse(requestId: string, surveyData: any) {
       )
     );
 
-    // Check if survey already exists
-    let existingSurvey = await SurveyResponse.findOne({ 
-      requestId: request._id,
-      officerId: user._id 
-    });
+    const isAdminOrModerator = ['admin', 'moderator'].includes(user.role);
 
-    // Allow editing if survey is submitted but not yet verified
-    if (existingSurvey && existingSurvey.status === 'verified') {
+    // Check if survey already exists
+    // For admins/moderators, find by requestId regardless of officerId
+    let existingSurvey = await SurveyResponse.findOne(
+      isAdminOrModerator
+        ? { requestId: request._id }
+        : { 
+            requestId: request._id,
+            $or: [
+              { officerId: user._id },
+              { officerId: user._id.toString() }
+            ]
+          }
+    );
+
+    // Allow editing if survey is submitted but not yet verified (unless admin/moderator)
+    if (existingSurvey && existingSurvey.status === 'verified' && !isAdminOrModerator) {
       throw new Error("Cannot edit verified survey");
     }
 
@@ -138,7 +148,9 @@ export async function submitSurveyResponse(requestId: string, surveyData: any) {
 
     const surveyData_processed = {
       requestId: request._id,
-      officerId: user._id,
+      officerId: existingSurvey?.officerId || user._id,
+      lastModifiedBy: user._id,
+      lastModifiedAt: new Date(),
       personalDetails: {
         ...surveyData.personalDetails,
         surveyDate: surveyData.personalDetails?.surveyDate || new Date()
@@ -162,20 +174,18 @@ export async function submitSurveyResponse(requestId: string, surveyData: any) {
       documentation: surveyData.documentation || [],
       officerReport: surveyData.officerReport,
       calculatedScores: assessment,
-      status: 'submitted',
-      submittedAt: new Date()
+      status: existingSurvey?.status === 'verified' ? 'verified' : 'submitted',
+      submittedAt: existingSurvey?.submittedAt || new Date()
     };
 
     if (existingSurvey) {
-      // Update existing survey (draft or submitted) to submitted status
+      // Update existing survey to updated status
       Object.assign(existingSurvey, surveyData_processed);
       await existingSurvey.save();
       
-      // Clean up any duplicate drafts for this request and officer
-      // This ensures data redundancy is minimized
+      // Clean up any duplicate drafts for this request
       await SurveyResponse.deleteMany({
         requestId: request._id,
-        officerId: user._id,
         _id: { $ne: existingSurvey._id }, // Don't delete the one we just updated
         status: 'draft' // Only delete drafts, not other submitted surveys
       });
@@ -185,10 +195,9 @@ export async function submitSurveyResponse(requestId: string, surveyData: any) {
       await surveyResponse.save();
       existingSurvey = surveyResponse;
       
-      // Clean up any orphaned drafts for this request and officer
+      // Clean up any orphaned drafts for this request
       await SurveyResponse.deleteMany({
         requestId: request._id,
-        officerId: user._id,
         _id: { $ne: existingSurvey._id },
         status: 'draft'
       });

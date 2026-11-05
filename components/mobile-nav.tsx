@@ -375,6 +375,14 @@ export function MobileNav() {
                                     <ClipboardCheck className="h-4 w-4" />
                                     Dashboard
                                 </Link>
+                                <Link
+                                    href="/surveyor/surveys"
+                                    className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-accent"
+                                    onClick={() => setOpen(false)}
+                                >
+                                    <FileCheck className="h-4 w-4" />
+                                    Past Surveys
+                                </Link>
                             </div>
                         </div>
                     </RoleGuard>
