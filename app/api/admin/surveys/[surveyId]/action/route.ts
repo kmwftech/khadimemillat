@@ -111,10 +111,10 @@ export async function POST(
       }
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error processing survey action:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: error?.message || 'Internal server error' },
       { status: 500 }
     );
   }

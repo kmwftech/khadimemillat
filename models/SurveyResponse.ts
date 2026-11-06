@@ -175,8 +175,8 @@ export interface AssessmentScores {
   socialStatusScore: number; // 0-5 based on widow/orphan/disabled status
   officerScore: number; // 0-5 from officer report
   totalScore: number; // Sum of all scores
-  category: 'category_1' | 'category_2' | 'category_3';
-  categoryColor: 'white' | 'yellow' | 'green';
+  category?: string;
+  categoryColor?: string;
   perCapitaIncome: number;
   calculatedAt: Date;
 }
@@ -491,12 +491,10 @@ const surveyResponseSchema = new Schema<ISurveyResponse>({
     officerScore: { type: Number, min: 0, max: 5 },
     totalScore: { type: Number, min: 0, max: 20 },
     category: { 
-      type: String, 
-      enum: ['category_1', 'category_2', 'category_3']
+      type: String
     },
     categoryColor: { 
-      type: String, 
-      enum: ['white', 'yellow', 'green']
+      type: String
     },
     perCapitaIncome: { type: Number },
     calculatedAt: { type: Date }
@@ -522,7 +520,7 @@ const surveyResponseSchema = new Schema<ISurveyResponse>({
   adminComments: { type: String },
   category: { 
     type: String,
-    enum: ['category_1', 'category_2', 'category_3']
+    trim: true
   },
   
   // Relief card information

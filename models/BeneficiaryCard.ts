@@ -22,8 +22,8 @@ export interface IBeneficiaryCard extends Document {
   district: string;
   
   // Assessment Results
-  category: 'category_1' | 'category_2' | 'category_3';
-  categoryColor: 'white' | 'yellow' | 'green';
+  category: string;
+  categoryColor: string;
   categoryDescription: string;
   
   // Scores from assessment
@@ -96,13 +96,12 @@ const beneficiaryCardSchema = new Schema<IBeneficiaryCard>({
   // Assessment Results
   category: { 
     type: String, 
-    enum: ['category_1', 'category_2', 'category_3'],
-    required: true 
+    required: true,
+    trim: true
   },
   categoryColor: { 
     type: String, 
-    enum: ['white', 'yellow', 'green'],
-    required: true 
+    default: 'gray'
   },
   categoryDescription: { type: String, required: true },
   
@@ -178,12 +177,16 @@ beneficiaryCardSchema.index({ currentSponsorId: 1 });
 
 // Virtual for category display name
 beneficiaryCardSchema.virtual('categoryDisplayName').get(function() {
-  const categoryNames = {
+  const categoryNames: Record<string, string> = {
     'category_1': 'Category 1 — Below Poverty (White)',
     'category_2': 'Category 2 — Medium Poverty (Yellow)',
     'category_3': 'Category 3 — Near-Stable (Green)'
   };
-  return categoryNames[this.category];
+  const key = this.category?.startsWith('category_1') ? 'category_1'
+    : this.category?.startsWith('category_2') ? 'category_2'
+    : this.category?.startsWith('category_3') ? 'category_3'
+    : this.category;
+  return categoryNames[key] || this.category;
 });
 
 // Virtual for eligibility summary
@@ -197,13 +200,18 @@ beneficiaryCardSchema.virtual('eligibilitySummary').get(function() {
 // Pre-save middleware to set category description and eligible facilities
 beneficiaryCardSchema.pre('save', function(next) {
   if (this.isNew || this.isModified('category')) {
+    const key = this.category?.startsWith('category_1') ? 'category_1'
+      : this.category?.startsWith('category_2') ? 'category_2'
+      : this.category?.startsWith('category_3') ? 'category_3'
+      : this.category;
+
     // Set category description
-    const descriptions = {
+    const descriptions: Record<string, string> = {
       'category_1': 'Below Poverty - Eligible for full sponsorship and monthly stipends',
       'category_2': 'Medium Poverty - Eligible for targeted support and partial stipends',
       'category_3': 'Near-Stable - Eligible for skill development and emergency aid'
     };
-    this.categoryDescription = descriptions[this.category];
+    this.categoryDescription = descriptions[key] || 'Beneficiary Category';
 
     // Set eligible facilities based on category
     const facilityMappings: Record<string, EligibleFacility[]> = {
@@ -226,15 +234,15 @@ beneficiaryCardSchema.pre('save', function(next) {
       ]
     };
     
-    this.eligibleFacilities = facilityMappings[this.category] || [];
+    this.eligibleFacilities = facilityMappings[key] || [];
 
     // Set monthly eligible amount based on category
-    const monthlyAmounts = {
+    const monthlyAmounts: Record<string, number> = {
       'category_1': 3000,
       'category_2': 1500,
       'category_3': 0
     };
-    this.monthlyEligibleAmount = monthlyAmounts[this.category];
+    this.monthlyEligibleAmount = monthlyAmounts[key] ?? 0;
   }
 
   // Generate QR code data if not exists

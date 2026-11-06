@@ -91,7 +91,8 @@ export function SurveyActionPanel({ survey }: SurveyActionPanelProps) {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to update survey status');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to update survey status');
       }
 
       const result = await response.json();
@@ -99,9 +100,9 @@ export function SurveyActionPanel({ survey }: SurveyActionPanelProps) {
       
       // Refresh the page to show updated status
       window.location.reload();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating survey:', error);
-      toast.error('Failed to update survey status');
+      toast.error(error.message || 'Failed to update survey status');
     } finally {
       setIsLoading(false);
     }

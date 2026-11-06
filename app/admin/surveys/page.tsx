@@ -70,8 +70,8 @@ export default async function AdminSurveysPage({ searchParams }: AdminSurveysPag
     query.status = resolvedSearchParams.status;
   }
   
-  if (resolvedSearchParams.category) {
-    query.category = resolvedSearchParams.category;
+  if (resolvedSearchParams.category && resolvedSearchParams.category !== 'all') {
+    query.category = { $regex: resolvedSearchParams.category, $options: 'i' };
   }
   
   if (resolvedSearchParams.search) {
@@ -315,7 +315,7 @@ export default async function AdminSurveysPage({ searchParams }: AdminSurveysPag
                       <TableCell>
                         {survey.category ? (
                           <Badge variant="outline">
-                            {survey.category.replace('_', ' ')}
+                            {survey.category.replace(/_/g, ' ')}
                           </Badge>
                         ) : (
                           <span className="text-muted-foreground">-</span>
