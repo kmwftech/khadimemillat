@@ -493,11 +493,22 @@ export default function SubscriptionSetup({ prefilledAmount, redirectSource }: S
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="font-medium">Amount:</span>
-                  <span className="text-lg font-bold">₹{watchedAmount}</span>
+                  <div className="text-right">
+                    <span className="text-lg font-bold">
+                      ₹{selectedPlan.planType === 'daily' ? watchedAmount * 7 : watchedAmount}
+                    </span>
+                    {selectedPlan.planType === 'daily' && (
+                      <span className="block text-xs text-muted-foreground">
+                        (₹{watchedAmount}/day billed weekly)
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="font-medium">Frequency:</span>
-                  <span className="capitalize">{selectedPlan.planType}</span>
+                  <span className="font-medium">Billing Frequency:</span>
+                  <span className="capitalize">
+                    {selectedPlan.planType === 'daily' ? 'Weekly (7 days batch)' : selectedPlan.planType}
+                  </span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="font-medium">First Payment:</span>

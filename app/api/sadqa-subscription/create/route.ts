@@ -75,11 +75,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Create subscription using service
+    const userEmail = body.userEmail || body.email || user.emailAddresses[0]?.emailAddress || ''
+    const userName = body.userName || body.name || (user.firstName && user.lastName ? `${user.firstName} ${user.lastName}` : user.username || 'Anonymous')
+    const userPhone = body.userPhone || body.phone || user.phoneNumbers[0]?.phoneNumber
+
     const result = await SadqaSubscriptionService.createSubscription({
       clerkUserId: userId,
-      userEmail: user.emailAddresses[0]?.emailAddress || '',
-      userName: user.firstName && user.lastName ? `${user.firstName} ${user.lastName}` : user.username || 'Anonymous',
-      userPhone: user.phoneNumbers[0]?.phoneNumber,
+      userEmail,
+      userName,
+      userPhone,
       planType,
       amount,
       startDate: startDate ? new Date(startDate) : undefined

@@ -56,18 +56,6 @@ export class SadqaSubscriptionService {
         return { success: false, error: 'Invalid subscription plan' }
       }
 
-      // Get or create Razorpay customer (non-blocking if it fails)
-      let customerId: string | undefined
-      try {
-        customerId = await this.getOrCreateCustomer(data.clerkUserId, {
-          name: data.userName,
-          email: userEmail,
-          contact: data.userPhone
-        })
-      } catch (custError) {
-        console.warn('[CUSTOMER_CREATION_FAILED_CONTINUING]', custError)
-      }
-
       // Create Razorpay plan for this specific amount
       const razorpayPlan = await this.createRazorpayPlan(data.planType, data.amount, plan)
 
@@ -75,6 +63,8 @@ export class SadqaSubscriptionService {
       const totalCount = this.getTotalCountForPlan(data.planType)
 
       // Create Razorpay subscription directly (WITHOUT start_at so it starts upon customer checkout authorisation)
+      // Note: We skip pre-assigning customer_id here so that Razorpay dynamically binds the subscription
+      // to the actual payer/details used at checkout, avoiding routing notifications to an admin account.
       const subscriptionData: any = {
         plan_id: (razorpayPlan as any).id,
         total_count: totalCount,
@@ -88,10 +78,6 @@ export class SadqaSubscriptionService {
         }
       }
 
-      if (customerId) {
-        subscriptionData.customer_id = customerId
-      }
-
       const razorpaySubscription = await razorpay.subscriptions.create(subscriptionData)
 
       // Create subscription record in pending state
@@ -103,7 +89,6 @@ export class SadqaSubscriptionService {
         planType: data.planType,
         amount: data.amount,
         currency: 'INR',
-        razorpayCustomerId: customerId,
         razorpayPlanId: (razorpayPlan as any).id,
         razorpaySubscriptionId: razorpaySubscription.id,
         status: 'pending_payment',
@@ -251,9 +236,30 @@ export class SadqaSubscriptionService {
           if (rzpSub && (rzpSub as any).current_end) {
             nextPaymentDate = new Date((rzpSub as any).current_end * 1000)
           }
+          if (rzpSub && (rzpSub as any).customer_id && !subscription.razorpayCustomerId) {
+            subscription.razorpayCustomerId = (rzpSub as any).customer_id
+          }
         } catch (fetchErr) {
           console.warn('[RAZORPAY_FETCH_ON_COMPLETE_WARN]', fetchErr)
         }
+      }
+
+      // Try to fetch payment details to capture actual payer email and contact from checkout
+      try {
+        const paymentDetails: any = await razorpay.payments.fetch(paymentId)
+        if (paymentDetails) {
+          if (paymentDetails.email) {
+            subscription.userEmail = paymentDetails.email
+          }
+          if (paymentDetails.contact && !subscription.userPhone) {
+            subscription.userPhone = paymentDetails.contact
+          }
+          if (paymentDetails.customer_id) {
+            subscription.razorpayCustomerId = paymentDetails.customer_id
+          }
+        }
+      } catch (pErr) {
+        console.warn('[FETCH_PAYMENT_DETAILS_WARN]', pErr)
       }
 
       // Update subscription with payment details
@@ -812,7 +818,7 @@ export class SadqaSubscriptionService {
     // Reasonable values for subscription cycles (1-2 years)
     const totalCountLimits = {
       daily: 52,     // Weekly payments for 1 year (52 weeks)
-      weekly: 52,    // Bi-weekly payments for 1 year (26 fortnights)
+      weekly: 52,    // Weekly payments for 1 year (52 weeks)
       monthly: 12,   // Monthly payments for 1 year
       yearly: 5      // Yearly payment for 1 year
     }
@@ -826,7 +832,7 @@ export class SadqaSubscriptionService {
   private static async createRazorpayPlan(planType: string, amount: number, planDetails: any) {
     const intervalMap = {
       daily: { period: 'weekly', interval: 1 }, // Weekly (closest to daily due to Razorpay limits)
-      weekly: { period: 'weekly', interval: 2 }, // Bi-weekly
+      weekly: { period: 'weekly', interval: 1 }, // Weekly (every 1 week)
       monthly: { period: 'monthly', interval: 1 },
       yearly: { period: 'yearly', interval: 1 }
     }
@@ -870,8 +876,7 @@ export class SadqaSubscriptionService {
         nextDate.setDate(nextDate.getDate() + 7)
         break
       case 'weekly':
-        // Bi-weekly (every 2 weeks)
-        nextDate.setDate(nextDate.getDate() + 14)
+        nextDate.setDate(nextDate.getDate() + 7)
         break
       case 'monthly':
         nextDate.setMonth(nextDate.getMonth() + 1)
