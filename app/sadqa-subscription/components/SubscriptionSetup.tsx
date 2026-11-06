@@ -157,7 +157,7 @@ export default function SubscriptionSetup({ prefilledAmount, redirectSource }: S
       const result = await response.json()
 
       if (result.success) {
-        if (result.order) {
+        if (result.subscriptionId || result.order) {
           // Initialize Razorpay payment
           await initiateRazorpayPayment(result)
         } else {
@@ -177,20 +177,13 @@ export default function SubscriptionSetup({ prefilledAmount, redirectSource }: S
 
   const initiateRazorpayPayment = async (orderData: any) => {
     try {
-      // Load Razorpay script
-      const script = document.createElement('script')
-      script.src = 'https://checkout.razorpay.com/v1/checkout.js'
-      script.async = true
-      document.body.appendChild(script)
+      const openCheckout = () => {
+        const subscriptionId = orderData.subscriptionId || orderData.subscription?.razorpaySubscriptionId
 
-      script.onload = () => {
-        const options = {
+        const options: any = {
           key: orderData.razorpayKeyId,
-          amount: orderData.order.amount,
-          currency: orderData.order.currency,
           name: 'Khadim-Millat Welfare Foundation',
-          description: `${selectedPlan?.displayName} Subscription - First Payment`,
-          order_id: orderData.order.id,
+          description: `${selectedPlan?.displayName || 'Sadqa'} Subscription`,
           handler: async (response: any) => {
             await handlePaymentSuccess(response, orderData.subscription._id)
           },
@@ -210,13 +203,30 @@ export default function SubscriptionSetup({ prefilledAmount, redirectSource }: S
           }
         }
 
+        if (subscriptionId) {
+          options.subscription_id = subscriptionId
+        } else if (orderData.order?.id) {
+          options.order_id = orderData.order.id
+          options.amount = orderData.order.amount
+          options.currency = orderData.order.currency
+        }
+
         const razorpay = new (window as any).Razorpay(options)
         razorpay.open()
       }
 
-      script.onerror = () => {
-        setLoading(false)
-        toast.error('Failed to load payment gateway')
+      if ((window as any).Razorpay) {
+        openCheckout()
+      } else {
+        const script = document.createElement('script')
+        script.src = 'https://checkout.razorpay.com/v1/checkout.js'
+        script.async = true
+        script.onload = openCheckout
+        script.onerror = () => {
+          setLoading(false)
+          toast.error('Failed to load payment gateway')
+        }
+        document.body.appendChild(script)
       }
     } catch (error) {
       console.error('Error initiating payment:', error)
@@ -235,6 +245,7 @@ export default function SubscriptionSetup({ prefilledAmount, redirectSource }: S
         body: JSON.stringify({
           subscriptionId,
           razorpay_payment_id: paymentResponse.razorpay_payment_id,
+          razorpay_subscription_id: paymentResponse.razorpay_subscription_id,
           razorpay_order_id: paymentResponse.razorpay_order_id,
           razorpay_signature: paymentResponse.razorpay_signature
         })

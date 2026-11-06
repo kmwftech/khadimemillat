@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       subscription: result.subscription,
-      order: result.order,
+      subscriptionId: result.subscriptionId,
       razorpayKeyId: result.razorpayKeyId,
       message: 'Subscription created successfully'
     }, { status: 201 })

@@ -96,6 +96,16 @@ export function verifyPaymentSignature({ orderId, paymentId, signature }: { orde
   return sigBuf.length === digBuf.length && crypto.timingSafeEqual(sigBuf, digBuf)
 }
 
+export function verifySubscriptionSignature({ subscriptionId, paymentId, signature }: { subscriptionId: string; paymentId: string; signature: string }): boolean {
+  if (!RAZORPAY_KEY_SECRET) throw new Error('RAZORPAY_KEY_SECRET is missing')
+  const hmac = crypto.createHmac('sha256', RAZORPAY_KEY_SECRET)
+  hmac.update(`${paymentId}|${subscriptionId}`)
+  const digest = hmac.digest('hex')
+  const sigBuf = Buffer.from(signature)
+  const digBuf = Buffer.from(digest)
+  return sigBuf.length === digBuf.length && crypto.timingSafeEqual(sigBuf, digBuf)
+}
+
 export function verifyWebhookSignature({ rawBody, signature }: { rawBody: string | Buffer; signature: string }): boolean {
   if (!RAZORPAY_WEBHOOK_SECRET) throw new Error('RAZORPAY_WEBHOOK_SECRET is missing')
   const expected = crypto.createHmac('sha256', RAZORPAY_WEBHOOK_SECRET).update(rawBody).digest('hex')
@@ -118,6 +128,7 @@ export const razorpayService = {
   createDonationOrder,
   createPurchaseOrder,
   verifyPaymentSignature,
+  verifySubscriptionSignature,
   verifyWebhookSignature,
   fetchPaymentDetails,
   fetchOrderDetails

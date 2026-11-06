@@ -11,10 +11,16 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { subscriptionId, razorpay_payment_id, razorpay_order_id, razorpay_signature } = body
+    const { 
+      subscriptionId, 
+      razorpay_payment_id, 
+      razorpay_subscription_id, 
+      razorpay_order_id, 
+      razorpay_signature 
+    } = body
 
     // Validation
-    if (!subscriptionId || !razorpay_payment_id || !razorpay_order_id || !razorpay_signature) {
+    if (!subscriptionId || !razorpay_payment_id || !razorpay_signature) {
       return NextResponse.json(
         { error: 'Missing payment verification details' },
         { status: 400 }
@@ -22,11 +28,20 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify payment signature
-    const isValidSignature = razorpayService.verifyPaymentSignature({
-      orderId: razorpay_order_id,
-      paymentId: razorpay_payment_id,
-      signature: razorpay_signature
-    })
+    let isValidSignature = false
+    if (razorpay_subscription_id) {
+      isValidSignature = razorpayService.verifySubscriptionSignature({
+        subscriptionId: razorpay_subscription_id,
+        paymentId: razorpay_payment_id,
+        signature: razorpay_signature
+      })
+    } else if (razorpay_order_id) {
+      isValidSignature = razorpayService.verifyPaymentSignature({
+        orderId: razorpay_order_id,
+        paymentId: razorpay_payment_id,
+        signature: razorpay_signature
+      })
+    }
 
     if (!isValidSignature) {
       return NextResponse.json(
@@ -35,13 +50,20 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log('[COMPLETING_SUBSCRIPTION]', { razorpay_order_id, razorpay_payment_id })
+    console.log('[COMPLETING_SUBSCRIPTION]', { 
+      subscriptionId, 
+      razorpay_subscription_id, 
+      razorpay_order_id, 
+      razorpay_payment_id 
+    })
 
     // Complete subscription setup
-    const result = await SadqaSubscriptionService.completeSubscriptionAfterPayment(
-      razorpay_order_id,
-      razorpay_payment_id
-    )
+    const result = await SadqaSubscriptionService.completeSubscriptionAfterPayment({
+      subscriptionId,
+      razorpaySubscriptionId: razorpay_subscription_id,
+      paymentId: razorpay_payment_id,
+      orderId: razorpay_order_id
+    })
 
     console.log('[COMPLETION_RESULT]', result)
 

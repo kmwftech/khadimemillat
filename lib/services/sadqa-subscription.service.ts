@@ -56,31 +56,43 @@ export class SadqaSubscriptionService {
         return { success: false, error: 'Invalid subscription plan' }
       }
 
-      // Get or create Razorpay customer
-      const customerId = await this.getOrCreateCustomer(data.clerkUserId, {
-        name: data.userName,
-        email: userEmail,
-        contact: data.userPhone
-      })
-
-      // Create Razorpay plan
-      const razorpayPlan = await this.createRazorpayPlan(data.planType, data.amount, plan)
-
-      // Calculate the actual amount for first payment
-      let firstPaymentAmount = data.amount
-      if (data.planType === 'daily') {
-        // For daily plans, charge 7x the amount for the first week
-        firstPaymentAmount = data.amount * 7
+      // Get or create Razorpay customer (non-blocking if it fails)
+      let customerId: string | undefined
+      try {
+        customerId = await this.getOrCreateCustomer(data.clerkUserId, {
+          name: data.userName,
+          email: userEmail,
+          contact: data.userPhone
+        })
+      } catch (custError) {
+        console.warn('[CUSTOMER_CREATION_FAILED_CONTINUING]', custError)
       }
 
-      // Create Razorpay order for first payment
-      const order = await razorpayService.createDonationOrder({
-        amount: firstPaymentAmount,
-        currency: 'INR',
-        donationId: `subscription_${Date.now()}`,
-        donorEmail: userEmail,
-        donorPhone: data.userPhone
-      })
+      // Create Razorpay plan for this specific amount
+      const razorpayPlan = await this.createRazorpayPlan(data.planType, data.amount, plan)
+
+      // Get appropriate total_count based on plan type
+      const totalCount = this.getTotalCountForPlan(data.planType)
+
+      // Create Razorpay subscription directly (WITHOUT start_at so it starts upon customer checkout authorisation)
+      const subscriptionData: any = {
+        plan_id: (razorpayPlan as any).id,
+        total_count: totalCount,
+        quantity: 1,
+        customer_notify: 1,
+        notes: {
+          clerkUserId: data.clerkUserId,
+          planType: data.planType,
+          type: 'sadqa',
+          createdBy: 'sadqa-subscription-system'
+        }
+      }
+
+      if (customerId) {
+        subscriptionData.customer_id = customerId
+      }
+
+      const razorpaySubscription = await razorpay.subscriptions.create(subscriptionData)
 
       // Create subscription record in pending state
       const subscription = new SadqaSubscription({
@@ -92,12 +104,13 @@ export class SadqaSubscriptionService {
         amount: data.amount,
         currency: 'INR',
         razorpayCustomerId: customerId,
-        razorpayOrderId: order.id,
-        razorpaySubscriptionId: `pending_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`, // Unique temp ID
+        razorpayPlanId: (razorpayPlan as any).id,
+        razorpaySubscriptionId: razorpaySubscription.id,
         status: 'pending_payment',
         startDate: new Date(),
-        // Store plan details for later subscription creation
-        tempPlanId: (razorpayPlan as any).id
+        totalPaid: 0,
+        paymentCount: 0,
+        failedPaymentCount: 0
       })
 
       await subscription.save()
@@ -105,11 +118,7 @@ export class SadqaSubscriptionService {
       return { 
         success: true, 
         subscription: subscription.toObject(),
-        order: {
-          id: order.id,
-          amount: order.amount,
-          currency: order.currency
-        },
+        subscriptionId: razorpaySubscription.id,
         razorpayKeyId: process.env.RAZORPAY_KEY_ID
       }
 
@@ -179,68 +188,51 @@ export class SadqaSubscriptionService {
   /**
    * Complete subscription after first payment
    */
-  static async completeSubscriptionAfterPayment(orderId: string, paymentId: string) {
+  static async completeSubscriptionAfterPayment(
+    params: {
+      subscriptionId?: string
+      razorpaySubscriptionId?: string
+      paymentId: string
+      orderId?: string
+    } | string,
+    maybePaymentId?: string
+  ) {
     try {
       await connectDB()
 
-      // Find subscription by order ID
-      const subscription = await SadqaSubscription.findOne({ razorpayOrderId: orderId })
+      let subscriptionId: string | undefined
+      let razorpaySubscriptionId: string | undefined
+      let paymentId: string
+      let orderId: string | undefined
+
+      if (typeof params === 'string') {
+        orderId = params
+        paymentId = maybePaymentId!
+      } else {
+        subscriptionId = params.subscriptionId
+        razorpaySubscriptionId = params.razorpaySubscriptionId
+        paymentId = params.paymentId
+        orderId = params.orderId
+      }
+
+      let subscription: any = null
+      if (subscriptionId) {
+        subscription = await SadqaSubscription.findById(subscriptionId)
+      }
+      if (!subscription && razorpaySubscriptionId) {
+        subscription = await SadqaSubscription.findOne({ razorpaySubscriptionId })
+      }
+      if (!subscription && orderId) {
+        subscription = await SadqaSubscription.findOne({ razorpayOrderId: orderId })
+      }
+
       if (!subscription) {
-        console.error('[SUBSCRIPTION_NOT_FOUND_FOR_ORDER]', orderId)
+        console.error('[SUBSCRIPTION_NOT_FOUND_FOR_PAYMENT]', { subscriptionId, razorpaySubscriptionId, orderId })
         return { success: false, error: 'Subscription not found' }
       }
 
-      // Get appropriate total_count based on plan type
-      const totalCount = this.getTotalCountForPlan(subscription.planType)
-
-      // Create actual Razorpay subscription now that first payment is done
-      let razorpaySubscription
-      try {
-        // Calculate start date (next payment date)
-        const nextPaymentDate = this.calculateNextPaymentDate(new Date(), subscription.planType)
-        const startAt = Math.floor(nextPaymentDate.getTime() / 1000) // Unix timestamp
-        
-        razorpaySubscription = await razorpay.subscriptions.create({
-          plan_id: subscription.tempPlanId,
-          customer_id: subscription.razorpayCustomerId,
-          total_count: totalCount,
-          quantity: 1,
-          start_at: startAt,
-          customer_notify: 1,
-          notes: {
-            clerkUserId: subscription.clerkUserId,
-            planType: subscription.planType,
-            createdBy: 'sadqa-subscription-system',
-            firstPaymentId: paymentId
-          }
-        } as any)
-      } catch (razorpayError: any) {
-        console.error('[RAZORPAY_SUBSCRIPTION_CREATE_ERROR]', razorpayError)
-        
-        // If subscription creation fails but payment was successful,
-        // still activate the subscription locally without Razorpay recurring
-        console.log('[ACTIVATING_WITHOUT_RAZORPAY_SUBSCRIPTION]', subscription._id)
-        
-        subscription.razorpaySubscriptionId = `manual_${Date.now()}_${subscription._id}`
-        subscription.razorpayPlanId = subscription.tempPlanId
-        subscription.razorpayPaymentId = paymentId
-        subscription.status = 'active'
-        subscription.nextPaymentDate = this.calculateNextPaymentDate(new Date(), subscription.planType)
-        subscription.totalPaid = subscription.amount
-        subscription.paymentCount = 1
-        subscription.lastPaymentDate = new Date()
-        subscription.tempPlanId = undefined
-        subscription.notes = `Activated manually due to Razorpay subscription creation failure: ${razorpayError.error?.description || razorpayError.message}`
-
-        await subscription.save()
-
-        // Create first donation record
-        await this.createFirstDonationRecord(subscription, orderId, paymentId)
-
-        // Update user stats
-        await this.updateUserSubscriptionStats(subscription.clerkUserId)
-
-        console.log(`[SUBSCRIPTION_ACTIVATED_MANUALLY] ${subscription._id}`)
+      // If already active with this paymentId, return successfully (idempotent)
+      if (subscription.status === 'active' && subscription.razorpayPaymentId === paymentId) {
         return { success: true, subscription: subscription.toObject() }
       }
 
@@ -250,21 +242,36 @@ export class SadqaSubscriptionService {
         actualAmountPaid = subscription.amount * 7 // Weekly amount for daily plan
       }
 
-      // Update subscription with Razorpay details
-      subscription.razorpaySubscriptionId = razorpaySubscription.id // Replace temp ID with real ID
-      subscription.razorpayPlanId = subscription.tempPlanId
+      // Try to fetch Razorpay subscription to get accurate nextPaymentDate
+      let nextPaymentDate = this.calculateNextPaymentDate(new Date(), subscription.planType)
+      const subIdToFetch = razorpaySubscriptionId || subscription.razorpaySubscriptionId
+      if (subIdToFetch && !subIdToFetch.startsWith('pending_') && !subIdToFetch.startsWith('manual_')) {
+        try {
+          const rzpSub = await razorpay.subscriptions.fetch(subIdToFetch)
+          if (rzpSub && (rzpSub as any).current_end) {
+            nextPaymentDate = new Date((rzpSub as any).current_end * 1000)
+          }
+        } catch (fetchErr) {
+          console.warn('[RAZORPAY_FETCH_ON_COMPLETE_WARN]', fetchErr)
+        }
+      }
+
+      // Update subscription with payment details
+      if (razorpaySubscriptionId && subscription.razorpaySubscriptionId !== razorpaySubscriptionId) {
+        subscription.razorpaySubscriptionId = razorpaySubscriptionId
+      }
       subscription.razorpayPaymentId = paymentId
       subscription.status = 'active'
-      subscription.nextPaymentDate = this.calculateNextPaymentDate(new Date(), subscription.planType)
+      subscription.nextPaymentDate = nextPaymentDate
       subscription.totalPaid = actualAmountPaid
       subscription.paymentCount = 1
       subscription.lastPaymentDate = new Date()
-      subscription.tempPlanId = undefined // Clear temp field
+      subscription.tempPlanId = undefined
 
       await subscription.save()
 
       // Create first donation record
-      await this.createFirstDonationRecord(subscription, orderId, paymentId)
+      await this.createFirstDonationRecord(subscription, orderId || subscription.razorpaySubscriptionId, paymentId)
 
       // Update user stats
       await this.updateUserSubscriptionStats(subscription.clerkUserId)
@@ -299,6 +306,17 @@ export class SadqaSubscriptionService {
     })
 
     if (sadqaProgram) {
+      // Check if donation already exists for this paymentId or subscription
+      const existing = await CampaignDonation.findOne({
+        $or: [
+          { razorpayPaymentId: paymentId },
+          { subscriptionId: subscription._id, paymentSequence: 1 }
+        ]
+      })
+      if (existing) {
+        return
+      }
+
       // Calculate actual amount paid
       let actualAmountPaid = subscription.amount
       if (subscription.planType === 'daily') {
@@ -340,40 +358,56 @@ export class SadqaSubscriptionService {
   private static async handleSubscriptionActivated(subscription: any, subscriptionEntity: any) {
     // Update subscription status to active
     subscription.status = 'active'
-    subscription.nextPaymentDate = this.calculateNextPaymentDate(new Date(), subscription.planType)
-    subscription.totalPaid = subscription.amount
-    subscription.paymentCount = 1
-    subscription.lastPaymentDate = new Date()
+    if (subscriptionEntity?.current_end) {
+      subscription.nextPaymentDate = new Date(subscriptionEntity.current_end * 1000)
+    } else {
+      subscription.nextPaymentDate = this.calculateNextPaymentDate(new Date(), subscription.planType)
+    }
+
+    let actualAmountPaid = subscription.amount
+    if (subscription.planType === 'daily') {
+      actualAmountPaid = subscription.amount * 7
+    }
+
+    if (!subscription.paymentCount || subscription.paymentCount === 0) {
+      subscription.totalPaid = actualAmountPaid
+      subscription.paymentCount = 1
+      subscription.lastPaymentDate = new Date()
+    }
 
     await subscription.save()
 
-    // Create first donation record
-    const sadqaProgram = await WelfareProgram.findOne({ 
-      slug: 'sadqa',
-      isActive: true 
-    })
-
-    if (sadqaProgram) {
-      const donation = new CampaignDonation({
-        programId: sadqaProgram._id,
-        donorId: subscription.clerkUserId,
-        donorName: subscription.userName,
-        donorEmail: subscription.userEmail,
-        donorPhone: subscription.userPhone,
-        amount: subscription.amount,
-        paymentMethod: 'online',
-        status: 'completed',
-        paymentVerified: true,
-        paymentVerifiedAt: new Date(),
-        // Subscription fields
-        subscriptionId: subscription._id,
-        isRecurring: true,
-        recurringType: subscription.planType,
-        paymentSequence: 1,
-        receiptPreferences: { email: true, sms: true, razorpayManaged: false }
+    // Create first donation record if one doesn't exist yet for this subscription
+    const existingDonation = await CampaignDonation.findOne({ subscriptionId: subscription._id })
+    if (!existingDonation) {
+      const sadqaProgram = await WelfareProgram.findOne({ 
+        slug: 'sadqa',
+        isActive: true 
       })
 
-      await donation.save()
+      if (sadqaProgram) {
+        const donation = new CampaignDonation({
+          programId: sadqaProgram._id,
+          donorId: subscription.clerkUserId,
+          donorName: subscription.userName,
+          donorEmail: subscription.userEmail,
+          donorPhone: subscription.userPhone,
+          amount: actualAmountPaid,
+          paymentMethod: 'online',
+          status: 'completed',
+          razorpayPaymentId: subscription.razorpayPaymentId,
+          paymentVerified: true,
+          paymentVerifiedAt: new Date(),
+          // Subscription fields
+          subscriptionId: subscription._id,
+          isRecurring: true,
+          recurringType: subscription.planType,
+          paymentSequence: 1,
+          receiptPreferences: { email: true, sms: true, razorpayManaged: false }
+        })
+
+        await donation.save()
+      }
     }
 
     // Update user stats
@@ -854,6 +888,15 @@ export class SadqaSubscriptionService {
    * Handle successful recurring payment
    */
   private static async handleSuccessfulPayment(subscription: any, paymentEntity: any) {
+    // Idempotency: Check if donation already recorded for this paymentId
+    if (paymentEntity?.id) {
+      const existing = await CampaignDonation.findOne({ razorpayPaymentId: paymentEntity.id })
+      if (existing) {
+        console.log('[SUBSCRIPTION_PAYMENT_ALREADY_RECORDED]', paymentEntity.id)
+        return
+      }
+    }
+
     // Find Sadqa welfare program
     const sadqaProgram = await WelfareProgram.findOne({ 
       slug: 'sadqa',
@@ -869,6 +912,10 @@ export class SadqaSubscriptionService {
     let recurringAmountPaid = subscription.amount
     if (subscription.planType === 'daily') {
       recurringAmountPaid = subscription.amount * 7 // Weekly amount for daily plan
+    }
+    if (paymentEntity?.amount) {
+      // paymentEntity.amount is in paise
+      recurringAmountPaid = paymentEntity.amount / 100
     }
 
     // Create donation record
@@ -889,7 +936,7 @@ export class SadqaSubscriptionService {
       isRecurring: true,
       recurringType: subscription.planType,
       subscriptionPaymentId: paymentEntity?.id,
-      paymentSequence: subscription.paymentCount + 1,
+      paymentSequence: (subscription.paymentCount || 0) + 1,
       receiptPreferences: { email: true, sms: true, razorpayManaged: false },
       // Add note for daily subscriptions
       notes: subscription.planType === 'daily' ? 
@@ -900,8 +947,12 @@ export class SadqaSubscriptionService {
     await donation.save()
 
     // Update subscription payment tracking
-    subscription.totalPaid += recurringAmountPaid
-    subscription.paymentCount += 1
+    subscription.status = 'active'
+    if (paymentEntity?.id) {
+      subscription.razorpayPaymentId = paymentEntity.id
+    }
+    subscription.totalPaid = (subscription.totalPaid || 0) + recurringAmountPaid
+    subscription.paymentCount = (subscription.paymentCount || 0) + 1
     subscription.lastPaymentDate = new Date()
     subscription.nextPaymentDate = this.calculateNextPaymentDate(new Date(), subscription.planType)
     subscription.failedPaymentCount = 0 // Reset failed count on success

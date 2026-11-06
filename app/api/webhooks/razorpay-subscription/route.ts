@@ -28,6 +28,21 @@ export async function POST(request: NextRequest) {
     const event = JSON.parse(body);
     await connectDB();
 
+    // Check if this event belongs to a SadqaSubscription
+    const subscriptionEntity = event.payload?.subscription?.entity;
+    if (subscriptionEntity?.id) {
+      const sponsorship = await Sponsorship.findOne({ razorpaySubscriptionId: subscriptionEntity.id });
+      if (!sponsorship) {
+        const SadqaSubscription = (await import('@/models/SadqaSubscription')).default;
+        const sadqaSub = await SadqaSubscription.findOne({ razorpaySubscriptionId: subscriptionEntity.id });
+        if (sadqaSub) {
+          const { SadqaSubscriptionService } = await import('@/lib/services/sadqa-subscription.service');
+          await SadqaSubscriptionService.processSubscriptionWebhook(event);
+          return NextResponse.json({ success: true, handledBy: 'SadqaSubscriptionService' });
+        }
+      }
+    }
+
     switch (event.event) {
       case 'subscription.activated':
         await handleSubscriptionActivated(event.payload.subscription.entity);
