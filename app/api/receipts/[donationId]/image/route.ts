@@ -1139,7 +1139,7 @@ function generateReceiptHTML(data: ReceiptData): string {
         <div class="org-name">Khadim-e-Millat<br>Welfare Foundation</div>
         <div class="org-tagline">Serving humanity with compassion and care</div>
       </div>
-      <div class="receipt-type">${data.wants80G ? '🏛️ Tax Deductible Receipt' : '📄 Donation Receipt'}</div>
+      <div class="receipt-type">📄 Donation Receipt</div>
     </div>
     
     <div class="content">
@@ -1188,7 +1188,8 @@ function generateReceiptHTML(data: ReceiptData): string {
         </div>
       </div>
       
-      ${data.wants80G && data.certificateNumber ? `
+      ${/* 80G Certificate Section (commented out)
+      data.wants80G && data.certificateNumber ? `
       <div class="certificate-section">
         <div class="certificate-title">🏛️ 80G Tax Exemption Certificate</div>
         <div style="margin-bottom: 12px;">
@@ -1209,7 +1210,7 @@ function generateReceiptHTML(data: ReceiptData): string {
           • This receipt is eligible for tax deduction under Section 80G
         </div>
       </div>
-      ` : ''}
+      ` : */ ''}
     </div>
     
     <div class="footer">
@@ -1221,12 +1222,7 @@ function generateReceiptHTML(data: ReceiptData): string {
         <div class="org-title">Khadim-e-Millat Welfare Foundation</div>
         <div class="org-details">
           Registered Charity Organization<br>
-          80G Registration: Valid as per Income Tax Act, 1961<br>
           PAN: AABCK1234E | Email: support@khadimemillat.org<br>
-          <br>
-          <strong>Certificate Numbering System:</strong><br>
-          Format: KMWF-80G-{Financial Year}-{Sequential Number}<br>
-          All certificates are sequentially numbered for audit compliance
         </div>
         
         <div class="verification-section">
@@ -1669,7 +1665,8 @@ function generateReceiptImageHTML(data: ReceiptData): string {
         </div>
       </div>
       
-      ${data.wants80G && data.certificateNumber ? `
+      ${/* 80G Tax Exemption Certificate (commented out)
+      data.wants80G && data.certificateNumber ? `
       <div class="certificate-section">
         <div class="certificate-title">80G Tax Exemption Certificate</div>
         <div class="detail-row">
@@ -1693,7 +1690,7 @@ function generateReceiptImageHTML(data: ReceiptData): string {
           Save this receipt for your tax filing records.
         </div>
       </div>
-      ` : ''}
+      ` : */ ''}
     </div>
     
     <div class="footer">
@@ -1704,7 +1701,7 @@ function generateReceiptImageHTML(data: ReceiptData): string {
       <div class="organization-info">
         <div class="org-title">Khadim-e-Millat Welfare Foundation</div>
         <div class="org-details">
-          Regd. under Indian Trust Act 1882 | 80G Approved by IT Department<br>
+          Regd. under Indian Trust Act 1882<br>
           <strong>PAN:</strong> AAICK6626K<br>
           <strong>Address:</strong> Gorakhpur, Uttar Pradesh, India<br>
           Email: support@khadimemillat.org | Phone: +91 80817 47259<br>

@@ -235,7 +235,7 @@ export default function DonationThankYou({
       `Amount: ${currency} ${amount.toLocaleString('en-IN')}\n` +
       `Receipt ID: ${receiptId}\n` +
       `Date: ${donationDate}\n` +
-      (wants80G ? `80G Certificate Number: ${certificateNumber}\n` : '') +
+      // (wants80G ? `80G Certificate Number: ${certificateNumber}\n` : '') +
       `\nMay Allah reward you for your generosity.`
     )
     window.open(`mailto:?subject=${subject}&body=${body}`)
@@ -244,7 +244,7 @@ export default function DonationThankYou({
   const handleWhatsAppShare = () => {
     const text = encodeURIComponent(
       `🤲 Alhamdulillah! I just donated ${currency} ${amount.toLocaleString('en-IN')} to Khadim-e-Millat Welfare Foundation for ${programName}. ` +
-      `${wants80G ? 'Also received 80G tax exemption certificate. ' : ''}` +
+      // `${wants80G ? 'Also received 80G tax exemption certificate. ' : ''}` +
       `May Allah accept our contributions and help those in need. 🤲`
     )
     window.open(`https://wa.me/?text=${text}`)
@@ -413,7 +413,7 @@ export default function DonationThankYou({
       <div class="org-name">Khadim-e-Millat<br>Welfare Foundation</div>
       <div class="org-tagline">Serving humanity with compassion and care</div>
     </div>
-    <div class="receipt-type">${wants80G ? '🏛️ Tax Deductible Receipt' : '📄 Donation Receipt'}</div>
+    <div class="receipt-type">📄 Donation Receipt</div>
   </div>
   
   <div class="content">
@@ -430,7 +430,8 @@ export default function DonationThankYou({
       </table>
     </div>
 
-    ${wants80G ? `
+    ${/* 80G Certificate Section Commented out
+    wants80G ? `
     <div class="certificate-section">
       <div class="certificate-title">🏛️ 80G Tax Exemption Certificate</div>
       <table>
@@ -448,14 +449,15 @@ export default function DonationThankYou({
         • Form 10BE will be available in your e-filing account for automatic pre-filling
       </div>
     </div>
-    ` : ''}
+    ` : ''
+    */ ''}
 
     <div class="footer">
       <div class="thank-you">🌟 Jazakallahu Khairan for your generous contribution!</div>
       <div class="org-details">
         <strong>Khadim-e-Millat Welfare Foundation</strong><br>
-        Registered under Indian Trust Act 1882 | 80G Approved by IT Department<br>
-        PAN: AABCK1234E | 80G Registration: AABCK1234EF20240001<br>
+        Registered under Indian Trust Act 1882<br>
+        PAN: AABCK1234E<br>
         Email: contact@khadimemillat.org | Phone: +91 80817 47259<br>
         Website: www.khadimemillat.org
       </div>
@@ -519,8 +521,8 @@ export default function DonationThankYou({
           </div>
         </div>
 
-        {/* 80G Certificate Info */}
-        {wants80G && certificateNumber && (
+        {/* 80G Certificate Info (Disabled per requirements) */}
+        {/* wants80G && certificateNumber && (
           <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-lg p-6 mb-6">
             <h3 className="text-lg font-semibold text-blue-900 dark:text-blue-100 mb-2 flex items-center">
               🏛️ 80G Tax Exemption Certificate
@@ -535,7 +537,7 @@ export default function DonationThankYou({
               </p>
             </div>
           </div>
-        )}
+        ) */}
 
         {/* Action Buttons */}
         <div className="space-y-4">
@@ -614,9 +616,9 @@ export default function DonationThankYou({
         <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
           <h4 className="font-semibold text-yellow-800 mb-2">Next Steps:</h4>
           <ul className="text-sm text-yellow-700 space-y-1">
-            <li>• Check your email for the detailed receipt{wants80G ? ' and 80G certificate' : ''}</li>
+            <li>• Check your email for the detailed receipt{/* wants80G ? ' and 80G certificate' : '' */}</li>
             <li>• Keep this receipt for your records</li>
-            {wants80G && <li>• Form 10BE will appear in your e-filing account automatically</li>}
+            {/* wants80G && <li>• Form 10BE will appear in your e-filing account automatically</li> */}
             <li>• Follow our impact updates on social media</li>
             {showMembership && <li>• Consider applying for verified membership for exclusive access</li>}
           </ul>

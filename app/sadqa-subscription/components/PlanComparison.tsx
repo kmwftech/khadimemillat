@@ -69,7 +69,7 @@ const planFeatures = {
   ],
   yearly: [
     'Maximum impact potential',
-    'Annual tax planning',
+    // 'Annual tax planning',
     'Exclusive updates',
     'VIP donor status'
   ]
@@ -321,12 +321,12 @@ export default function PlanComparison() {
               No, there are no setup fees or hidden charges. You only pay the amount you choose for your donations.
             </p>
           </div>
-          <div>
+          {/* <div>
             <h4 className="font-semibold mb-2">Can I get tax benefits?</h4>
             <p className="text-muted-foreground text-sm">
               Yes, all donations are eligible for 80G tax deduction. We'll provide certificates for your tax filing.
             </p>
-          </div>
+          </div> */}
         </CardContent>
       </Card>
     </div>

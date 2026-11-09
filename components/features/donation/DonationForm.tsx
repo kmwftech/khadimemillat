@@ -544,12 +544,12 @@ export default function DonationForm({ campaignSlug }: DonationFormProps) {
         </div>
       )}
 
-      {/* 80G Receipt and Preferences Section */}
+      {/* 80G Receipt and Preferences Section (Disabled per requirements) */}
+      {/* 
       <div className="space-y-4 p-4 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
         <div className="space-y-3">
           <h3 className="text-sm font-semibold text-foreground">Receipt Preferences</h3>
           
-          {/* 80G Receipt Option */}
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <input
@@ -568,7 +568,6 @@ export default function DonationForm({ campaignSlug }: DonationFormProps) {
             </p>
           </div>
 
-          {/* PAN Input (conditionally shown) */}
           {wants80GReceipt && (
             <>
               <div>
@@ -590,7 +589,6 @@ export default function DonationForm({ campaignSlug }: DonationFormProps) {
                 </p>
               </div>
 
-              {/* Address Fields for 80G */}
               <div className="space-y-3 p-3 bg-blue-50 dark:bg-blue-950/30 rounded-lg border border-blue-200 dark:border-blue-800">
                 <h4 className="text-sm font-medium text-blue-900 dark:text-blue-100">Address Details (Required for 80G Certificate)</h4>
                 
@@ -661,6 +659,7 @@ export default function DonationForm({ campaignSlug }: DonationFormProps) {
           )}
         </div>
       </div>
+      */}
 
 
 

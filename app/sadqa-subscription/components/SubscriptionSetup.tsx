@@ -520,7 +520,7 @@ export default function SubscriptionSetup({ prefilledAmount, redirectSource }: S
                 <p>• Your subscription will be processed automatically</p>
                 <p>• You can pause or cancel anytime from your dashboard</p>
                 <p>• Receipts will be sent via email and SMS</p>
-                <p>• All donations are eligible for 80G tax benefits</p>
+                {/* <p>• All donations are eligible for 80G tax benefits</p> */}
               </div>
 
               <div className="flex gap-3">

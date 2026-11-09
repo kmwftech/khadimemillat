@@ -380,11 +380,12 @@ export default function TransparencyPage() {
                                                         CIN U85300UP2021NPL143120
                                                     </strong>
                                                     ), recognised by the Government of
-                                                    India and eligible for{" "}
+                                                    India
+                                                    {/* and eligible for{" "}
                                                     <strong>
                                                         Income-Tax Exemptions under Sections
                                                         80G and 12A
-                                                    </strong>
+                                                    </strong> */}
                                                     .
                                                 </p>
                                             </div>

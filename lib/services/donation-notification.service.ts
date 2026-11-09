@@ -85,8 +85,9 @@ export async function sendDonationThankYouNotifications(donation: any) {
         const receiptDate = createdAt.toLocaleDateString('en-IN')
         const receiptTime = createdAt.toLocaleTimeString('en-IN')
 
-        // Process 80G certificate if requested (generate cert but don't send separate email - 80G info will be included in main notification email)
+        // Process 80G certificate if requested (Commented out per requirements)
         let certificate80GInfo = null
+        /*
         if (wants80G) {
             try {
                 console.log(`[80G_CERTIFICATE_PROCESSING_START] ${donationId}`)
@@ -121,10 +122,9 @@ export async function sendDonationThankYouNotifications(donation: any) {
                 // Continue with regular email even if 80G fails
             }
         }
+        */
 
-        const emailSubject = wants80G ?
-            `Thank you for your donation - 80G Certificate #${certificate80GInfo?.certificateNumber || donationId.toString().slice(-8)}` :
-            `Thank you for your donation - Receipt #${donationId.toString().slice(-8)}`
+        const emailSubject = `Thank you for your donation - Receipt #${donationId.toString().slice(-8)}`
 
         // Send email notification if email provided
         if (donorEmail && donorEmail.trim() && userNotificationPrefs.email) {
@@ -146,6 +146,7 @@ export async function sendDonationThankYouNotifications(donation: any) {
   <tr><td style="padding: 6px; border: 1px solid #ddd; background: #f9f9f9; font-weight: bold;">PAN Required:</td><td style="padding: 6px; border: 1px solid #ddd;">${amount >= 2000 ? 'Yes (Amount ≥ ₹2,000)' : 'No (Amount < ₹2,000)'}</td></tr>
 </table>`
 
+                /*
                 // Add 80G certificate information if applicable
                 if (wants80G && certificate80GInfo) {
                     emailMessage += `
@@ -163,9 +164,10 @@ export async function sendDonationThankYouNotifications(donation: any) {
                     // Add tax information even for non-80G donations
                     emailMessage += `
 <div style="background: #f8fafc; padding: 10px; border-left: 4px solid #64748b; margin: 10px 0;">
-  <strong>📋 Tax Information:</strong> This receipt can be used for tax purposes. ${amount >= 2000 ? 'PAN is mandatory for donations ≥ ₹2,000 as per Income Tax rules.' : 'No PAN required for donations below ₹2,000.'} For 80G tax exemption certificates, please request during donation.
+  <strong>📋 Tax Information:</strong> This receipt can be used for tax purposes. ${amount >= 2000 ? 'PAN is mandatory for donations ≥ ₹2,000 as per Income Tax rules.' : 'No PAN required for donations below ₹2,000.'}
 </div>`
                 }
+                */
 
                 emailMessage += `
 <div style="background: #f0f9ff; padding: 15px; border: 1px solid #3b82f6; margin: 15px 0;">
@@ -181,11 +183,11 @@ export async function sendDonationThankYouNotifications(donation: any) {
   <strong>Khadim-e-Millat Welfare Foundation</strong><br>
   📞 +91 80817 47259 | 📧 support@khadimemillat.org | 🌐 www.khadimemillat.org<br>
   PAN: AAICK6626K | CIN: U85300UP2021NPL143120<br>
-  ${wants80G ? `Section 80G(5)(vi) - 100% deduction allowed | Registration under Income Tax Act, 1961<br>` : ''}
+  ${/* wants80G ? `Section 80G(5)(vi) - 100% deduction allowed | Registration under Income Tax Act, 1961<br>` : */ ''}
   Registered Office: Gorakhpur, Uttar Pradesh, India
 </div>`
 
-                const emailTitle = wants80G ? '🏛️ Thank You for Your Donation - 80G Certificate Included!' : 'Thank You for Your Donation!'
+                const emailTitle = 'Thank You for Your Donation!'
 
                 const emailHtml = emailService.generateDefaultBrandedEmail({
                     title: emailTitle,
@@ -237,9 +239,11 @@ export async function sendDonationThankYouNotifications(donation: any) {
                         // Enhanced fallback message with 80G information if applicable
                         let fallbackMessage = `*Assalamu Alaikum ${donorName}*\n\nAlhamdulillah! Your generous donation has been received successfully.\n\n💰 *Amount:* ${currency} ${amount.toLocaleString('en-IN')}\n📋 *Receipt ID:* ${donationId.toString().slice(-8)}\n🏛️ *Program:* ${programName || campaignName || 'General Donation'}\n📅 *Date:* ${new Date().toLocaleDateString('en-IN')}`
 
+                        /*
                         if (wants80G) {
                             fallbackMessage += `\n\n🏛️ *80G Tax Certificate:* Will be generated and sent separately\n💳 *PAN Required:* Yes (for tax exemption)`
                         }
+                        */
 
                         fallbackMessage += `\n\n🔗 *View Details:* ${process.env.NEXT_PUBLIC_APP_URL || 'https://khadimemillat.org'}/thank-you?donationId=${donationId}\n\nJazakallahu Khairan! May Allah accept your donation and bless you abundantly.\n\n_Khadim-e-Millat Welfare Foundation_\n📞 +91 80817 47259`
 

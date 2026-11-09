@@ -74,7 +74,7 @@ function generateReceiptSVG(data: {
   donationId: string
 }): string {
   const width = 600
-  const height = data.wants80G && data.certificateNumber ? 800 : 700
+  const height = 700
   
   return `
 <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
@@ -119,12 +119,12 @@ function generateReceiptSVG(data: {
   <!-- Details Section -->
   ${generateDetailsSection(data, 340)}
   
-  ${data.wants80G && data.certificateNumber ? generateCertificateSection(data, height - 200) : ''}
+  ${/* data.wants80G && data.certificateNumber ? generateCertificateSection(data, height - 200) : */ ''}
   
   <!-- Footer -->
   <text x="${width/2}" y="${height - 80}" text-anchor="middle" fill="#6b7280" font-family="Arial, sans-serif" font-size="12">Thank you for your generous donation. Your contribution helps us serve those in need.</text>
   <text x="${width/2}" y="${height - 60}" text-anchor="middle" fill="#374151" font-family="Arial, sans-serif" font-size="14" font-weight="600">Khadim-e-Millat Welfare Foundation</text>
-  <text x="${width/2}" y="${height - 40}" text-anchor="middle" fill="#9ca3af" font-family="Arial, sans-serif" font-size="10">Registered Charity | 80G Registration: Valid</text>
+  <text x="${width/2}" y="${height - 40}" text-anchor="middle" fill="#9ca3af" font-family="Arial, sans-serif" font-size="10">Registered Charity</text>
   <text x="${width/2}" y="${height - 25}" text-anchor="middle" fill="#9ca3af" font-family="Arial, sans-serif" font-size="10">Contact: support@khadimemillat.org</text>
 </svg>
   `

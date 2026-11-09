@@ -1889,10 +1889,12 @@ export default function WorkflowPage() {
                                         q: "What does the Gullak system do?",
                                         a: "Gullak boxes allow small, daily community contributions. Each has a unique ID, registered caretaker, GPS location mapping, and logged collection cycles. All funds go to welfare support."
                                     },
+                                    /*
                                     {
                                         q: "Are donations tax-deductible?",
                                         a: "Yes. The organization is registered under 80G for tax-deductible donations. Details and receipts can be issued upon request."
                                     },
+                                    */
                                     {
                                         q: "How can I volunteer or get involved?",
                                         a: "You can contribute by sponsoring a beneficiary, setting up Sadqa subscription, donating scrap/clothing, helping in relief drives, or hosting a Gullak. Volunteers are welcomed and guided."
