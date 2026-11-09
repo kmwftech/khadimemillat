@@ -150,8 +150,8 @@ export class SadqaSubscriptionService {
 
       console.log(`[SUBSCRIPTION_WEBHOOK] ${event} for ${subscriptionEntity.id}`)
 
-      if (event === 'subscription.activated') {
-        // First payment successful, subscription is now active
+      if (event === 'subscription.authenticated' || event === 'subscription.activated') {
+        // First payment/mandate successful, subscription is now active
         await this.handleSubscriptionActivated(subscription, subscriptionEntity)
       } else if (event === 'subscription.charged') {
         // Recurring payment successful
@@ -167,6 +167,38 @@ export class SadqaSubscriptionService {
     } catch (error) {
       console.error('Error processing subscription webhook:', error)
       throw error
+    }
+  }
+
+  /**
+   * Handle invoice.paid webhook event for a subscription
+   */
+  static async handleInvoicePaid(payload: any) {
+    try {
+      await connectDB()
+      const invoice = payload?.invoice?.entity
+      const payment = payload?.payment?.entity
+      const subscriptionId = invoice?.subscription_id
+      if (!subscriptionId) return
+
+      const subscription = await SadqaSubscription.findOne({
+        razorpaySubscriptionId: subscriptionId
+      })
+      if (!subscription) {
+        console.warn('[INVOICE_PAID_SUBSCRIPTION_NOT_FOUND]', subscriptionId)
+        return
+      }
+
+      const paymentId = invoice.payment_id || payment?.id
+      if (paymentId && !subscription.razorpayPaymentId) {
+        subscription.razorpayPaymentId = paymentId
+        await subscription.save()
+      }
+
+      await this.syncSubscriptionStatus(subscription._id.toString())
+      console.log(`[INVOICE_PAID_PROCESSED] for subscription ${subscriptionId}`)
+    } catch (error) {
+      console.error('[HANDLE_INVOICE_PAID_ERROR]', error)
     }
   }
 
@@ -230,9 +262,12 @@ export class SadqaSubscriptionService {
       // Try to fetch Razorpay subscription to get accurate nextPaymentDate
       let nextPaymentDate = this.calculateNextPaymentDate(new Date(), subscription.planType)
       const subIdToFetch = razorpaySubscriptionId || subscription.razorpaySubscriptionId
+      let rzpStatus: string | undefined
+
       if (subIdToFetch && !subIdToFetch.startsWith('pending_') && !subIdToFetch.startsWith('manual_')) {
         try {
           const rzpSub = await razorpay.subscriptions.fetch(subIdToFetch)
+          rzpStatus = rzpSub?.status
           if (rzpSub && (rzpSub as any).current_end) {
             nextPaymentDate = new Date((rzpSub as any).current_end * 1000)
           }
@@ -267,12 +302,21 @@ export class SadqaSubscriptionService {
         subscription.razorpaySubscriptionId = razorpaySubscriptionId
       }
       subscription.razorpayPaymentId = paymentId
-      subscription.status = 'active'
-      subscription.nextPaymentDate = nextPaymentDate
       subscription.totalPaid = actualAmountPaid
       subscription.paymentCount = 1
       subscription.lastPaymentDate = new Date()
       subscription.tempPlanId = undefined
+
+      const isMandateConfirmed = rzpStatus === 'active' || rzpStatus === 'authenticated'
+      if (isMandateConfirmed || !rzpStatus) {
+        subscription.status = 'active'
+        subscription.nextPaymentDate = nextPaymentDate
+        subscription.notes = undefined
+      } else if (rzpStatus === 'created') {
+        // Payment captured, but mandate is still awaiting bank approval / registration
+        subscription.status = 'pending_payment'
+        subscription.notes = 'Payment captured on Razorpay, but recurring mandate is awaiting bank authorization'
+      }
 
       await subscription.save()
 
@@ -282,15 +326,17 @@ export class SadqaSubscriptionService {
       // Update user stats
       await this.updateUserSubscriptionStats(subscription.clerkUserId)
 
-      // Send activation notification
-      try {
-        const { SubscriptionNotificationService } = await import('./subscription-notification.service')
-        await SubscriptionNotificationService.sendSubscriptionCreated(subscription)
-      } catch (notificationError) {
-        console.warn('[SUBSCRIPTION_ACTIVATION_NOTIFICATION_FAILED]', notificationError)
+      // Send activation notification only if mandate is confirmed active
+      if (isMandateConfirmed) {
+        try {
+          const { SubscriptionNotificationService } = await import('./subscription-notification.service')
+          await SubscriptionNotificationService.sendSubscriptionCreated(subscription)
+        } catch (notificationError) {
+          console.warn('[SUBSCRIPTION_ACTIVATION_NOTIFICATION_FAILED]', notificationError)
+        }
       }
 
-      console.log(`[SUBSCRIPTION_COMPLETED] ${subscription._id}`)
+      console.log(`[SUBSCRIPTION_COMPLETED] ${subscription._id} (status: ${subscription.status})`)
       return { success: true, subscription: subscription.toObject() }
 
     } catch (error) {
@@ -452,7 +498,7 @@ export class SadqaSubscriptionService {
       }
 
       // Fetch current status from Razorpay
-      let razorpaySubscription
+      let razorpaySubscription: any
       try {
         razorpaySubscription = await razorpay.subscriptions.fetch(subscription.razorpaySubscriptionId)
         if (!razorpaySubscription || !razorpaySubscription.status) {
@@ -464,12 +510,51 @@ export class SadqaSubscriptionService {
         return { success: false, error: 'Failed to fetch subscription from Razorpay' }
       }
 
+      // Also check invoices for this subscription to capture payment if missing
+      try {
+        const invoicesResponse: any = await (razorpay.invoices as any).all({
+          subscription_id: subscription.razorpaySubscriptionId
+        })
+        const invoices = invoicesResponse.items || []
+        const paidInvoice = invoices.find((inv: any) => inv.status === 'paid')
+        if (paidInvoice) {
+          if (paidInvoice.payment_id && !subscription.razorpayPaymentId) {
+            subscription.razorpayPaymentId = paidInvoice.payment_id
+          }
+          if (paidInvoice.amount_paid && (!subscription.totalPaid || subscription.totalPaid === 0)) {
+            subscription.totalPaid = paidInvoice.amount_paid / 100
+          }
+          if (razorpaySubscription.paid_count && (!subscription.paymentCount || subscription.paymentCount === 0)) {
+            subscription.paymentCount = razorpaySubscription.paid_count
+          }
+          if (paidInvoice.paid_at && !subscription.lastPaymentDate) {
+            subscription.lastPaymentDate = new Date(paidInvoice.paid_at * 1000)
+          }
+        }
+      } catch (invErr) {
+        console.warn(`[RAZORPAY_INVOICES_FETCH_WARN] ${subscription.razorpaySubscriptionId}:`, invErr)
+      }
+
       const razorpayStatus = razorpaySubscription.status
 
       // Map Razorpay status to our status
       let newStatus = subscription.status
-      if (razorpayStatus === 'active') {
+      if (razorpayStatus === 'active' || razorpayStatus === 'authenticated') {
         newStatus = 'active'
+        subscription.notes = undefined
+        if (razorpaySubscription.current_end) {
+          subscription.nextPaymentDate = new Date(razorpaySubscription.current_end * 1000)
+        }
+        if (subscription.razorpayPaymentId) {
+          const existingDonation = await CampaignDonation.findOne({ razorpayPaymentId: subscription.razorpayPaymentId })
+          if (!existingDonation) {
+            await this.createFirstDonationRecord(
+              subscription,
+              subscription.razorpaySubscriptionId,
+              subscription.razorpayPaymentId
+            )
+          }
+        }
       } else if (razorpayStatus === 'halted') {
         newStatus = 'paused'
       } else if (razorpayStatus === 'cancelled') {
@@ -477,11 +562,9 @@ export class SadqaSubscriptionService {
       } else if (razorpayStatus === 'expired') {
         newStatus = 'expired'
       } else if (razorpayStatus === 'created') {
-        // Keep current status if Razorpay is still in created state
-        // But add a note about the pending activation
-        if (subscription.status === 'active') {
-          newStatus = 'pending_payment'
-          subscription.notes = 'Subscription created, waiting for Razorpay activation'
+        newStatus = 'pending_payment'
+        if (subscription.razorpayPaymentId || subscription.totalPaid > 0) {
+          subscription.notes = 'Payment captured on Razorpay, but recurring mandate is awaiting bank authorization'
         }
       }
 
@@ -491,10 +574,11 @@ export class SadqaSubscriptionService {
         if (newStatus === 'expired' || newStatus === 'cancelled') {
           subscription.endDate = new Date()
         }
-        await subscription.save()
-        
-        console.log(`[SUBSCRIPTION_STATUS_SYNCED] ${subscriptionId}: ${subscription.status} -> ${newStatus}`)
       }
+      await subscription.save()
+      await this.updateUserSubscriptionStats(subscription.clerkUserId)
+      
+      console.log(`[SUBSCRIPTION_STATUS_SYNCED] ${subscriptionId}: ${subscription.status}`)
 
       return { 
         success: true, 

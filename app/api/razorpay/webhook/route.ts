@@ -31,9 +31,27 @@ export async function POST(req: NextRequest) {
     const payment = event.payload?.payment?.entity
     const order = event.payload?.order?.entity
     const subscription = event.payload?.subscription?.entity
+    const invoice = event.payload?.invoice?.entity
+    const invoiceSubscriptionId = invoice?.subscription_id
+
+    // Handle invoice.paid for subscriptions
+    if (eventType === 'invoice.paid' && invoiceSubscriptionId) {
+      try {
+        const { SadqaSubscriptionService } = await import('@/lib/services/sadqa-subscription.service')
+        await SadqaSubscriptionService.handleInvoicePaid(event.payload)
+        addBreadcrumb({
+          category: 'subscriptions',
+          message: 'invoice.paid processed for subscription',
+          level: 'info',
+          data: { subscriptionId: invoiceSubscriptionId, invoiceId: invoice?.id }
+        })
+      } catch (invoiceError) {
+        console.error('[INVOICE_PAID_WEBHOOK_ERROR]', invoiceError)
+      }
+    }
 
     // Handle subscription events
-    if (eventType === 'subscription.activated' || eventType === 'subscription.charged' || eventType === 'subscription.halted' || eventType === 'subscription.cancelled') {
+    if (eventType === 'subscription.authenticated' || eventType === 'subscription.activated' || eventType === 'subscription.charged' || eventType === 'subscription.halted' || eventType === 'subscription.cancelled') {
       try {
         // Check if it's a sponsorship subscription by looking at notes
         const subscriptionNotes = subscription?.notes || {}
@@ -43,19 +61,8 @@ export async function POST(req: NextRequest) {
           // Handle sponsorship subscription
           console.log(`[SPONSORSHIP_WEBHOOK] Processing ${eventType} for sponsorship subscription: ${subscription?.id}`)
           
-          // Import and use the sponsorship webhook handler
-          const sponsorshipWebhookModule = await import('@/app/api/webhooks/razorpay-subscription/route')
-          // Create a mock request with the same body and signature
-          const mockRequest = new Request('http://localhost/api/webhooks/razorpay-subscription', {
-            method: 'POST',
-            body: raw,
-            headers: {
-              'x-razorpay-signature': signature || '',
-              'content-type': 'application/json'
-            }
-          })
-          
-          await sponsorshipWebhookModule.POST(mockRequest as any)
+          const { RazorpaySubscriptionService } = await import('@/lib/services/razorpay-subscription.service')
+          await RazorpaySubscriptionService.processSponsorshipWebhook(event)
           
           addBreadcrumb({ 
             category: 'sponsorships', 
@@ -87,18 +94,34 @@ export async function POST(req: NextRequest) {
       const orderId = order?.id || payment?.order_id
       const paymentId = payment?.id
       const receipt: string | undefined = order?.receipt
-      if (receipt?.startsWith('donation_')) {
-        const donationId = receipt.replace('donation_', '')
-        const donation = await CampaignDonation.findById(donationId)
-        if (donation) {
-          donation.razorpayOrderId = orderId
-          donation.razorpayPaymentId = paymentId
+
+      // 1. Try resolving Donation by receipt, notes, or orderId/paymentId
+      let donationId = receipt?.startsWith('donation_') ? receipt.replace('donation_', '') : undefined
+      if (!donationId) {
+        donationId = order?.notes?.donationId || payment?.notes?.donationId
+      }
+
+      let donation = null
+      if (donationId) {
+        donation = await CampaignDonation.findById(donationId)
+      }
+      if (!donation && orderId) {
+        donation = await CampaignDonation.findOne({ razorpayOrderId: orderId })
+      }
+      if (!donation && paymentId) {
+        donation = await CampaignDonation.findOne({ razorpayPaymentId: paymentId })
+      }
+
+      if (donation) {
+        if (!donation.paymentVerified || donation.status !== 'completed') {
+          donation.razorpayOrderId = orderId || donation.razorpayOrderId
+          donation.razorpayPaymentId = paymentId || donation.razorpayPaymentId
           donation.paymentVerified = true
           donation.paymentVerifiedAt = new Date()
           donation.status = 'completed'
           donation.processedAt = donation.processedAt || new Date()
           await donation.save()
-          addBreadcrumb({ category: 'payments', message: 'donation marked completed via webhook', level: 'info', data: { donationId } })
+          addBreadcrumb({ category: 'payments', message: 'donation marked completed via webhook', level: 'info', data: { donationId: donation._id } })
           
           // Send thank you notifications after successful donation
           try {
@@ -106,17 +129,57 @@ export async function POST(req: NextRequest) {
             await sendDonationThankYouNotifications(donation)
           } catch (notifyError) {
             console.warn('[DONATION_NOTIFICATION_FAILED_WEBHOOK]', notifyError)
-            // Don't fail the webhook processing if notifications fail
           }
         }
-      } else if (receipt?.startsWith('scrap_')) {
-        const scrapItemId = receipt.replace('scrap_', '')
-        try {
-          const completed = await purchaseService.completePurchaseFromWebhook({ scrapItemId, razorpayOrderId: orderId, razorpayPaymentId: paymentId, completedBy: 'system' })
-          addBreadcrumb({ category: 'payments', message: 'purchase completed via webhook', level: 'info', data: { purchaseId: String(completed._id), scrapItemId } })
-        } catch (e) {
-          // If already processed, ignore; else log
-          addBreadcrumb({ category: 'payments', message: 'webhook completion error', level: 'warning', data: { error: (e as any)?.message, scrapItemId } })
+      } else {
+        // 2. Try resolving Scrap Purchase
+        let scrapItemId = receipt?.startsWith('scrap_') ? receipt.replace('scrap_', '') : undefined
+        if (!scrapItemId) {
+          scrapItemId = order?.notes?.scrapItemId || payment?.notes?.scrapItemId
+        }
+
+        if (scrapItemId) {
+          try {
+            const completed = await purchaseService.completePurchaseFromWebhook({ scrapItemId, razorpayOrderId: orderId, razorpayPaymentId: paymentId, completedBy: 'system' })
+            if (completed) {
+              addBreadcrumb({ category: 'payments', message: 'purchase completed via webhook', level: 'info', data: { purchaseId: String(completed._id), scrapItemId } })
+            }
+          } catch (e) {
+            addBreadcrumb({ category: 'payments', message: 'webhook completion error', level: 'warning', data: { error: (e as any)?.message, scrapItemId } })
+          }
+        } else if (orderId) {
+          // Check if there is a pending purchase by orderId
+          try {
+            const Purchase = (await import('@/models/Purchase')).default
+            const pendingPurchase = await Purchase.findOne({ razorpayOrderId: orderId, paymentStatus: 'pending' })
+            if (pendingPurchase) {
+              const completed = await purchaseService.completePurchaseFromWebhook({ scrapItemId: String(pendingPurchase.scrapItemId), razorpayOrderId: orderId, razorpayPaymentId: paymentId, completedBy: 'system' })
+              if (completed) {
+                addBreadcrumb({ category: 'payments', message: 'purchase completed by orderId via webhook', level: 'info', data: { purchaseId: String(completed._id) } })
+              }
+            }
+          } catch (e) {
+            console.warn('[PURCHASE_ORDER_LOOKUP_WARN]', e)
+          }
+        }
+
+        // 3. Check if this payment belongs to a Subscription invoice
+        if (payment?.invoice_id || payment?.notes?.type === 'sadqa' || order?.notes?.type === 'sadqa') {
+          try {
+            const { SadqaSubscriptionService } = await import('@/lib/services/sadqa-subscription.service')
+            const SadqaSubscription = (await import('@/models/SadqaSubscription')).default
+            const sub = await SadqaSubscription.findOne({
+              $or: [
+                { razorpayPaymentId: paymentId },
+                { razorpayOrderId: orderId }
+              ]
+            })
+            if (sub) {
+              await SadqaSubscriptionService.syncSubscriptionStatus(sub._id.toString())
+            }
+          } catch (subErr) {
+            console.warn('[SUBSCRIPTION_PAYMENT_SYNC_WARN]', subErr)
+          }
         }
       }
     }

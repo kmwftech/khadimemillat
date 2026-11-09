@@ -1,4 +1,8 @@
 import Razorpay from 'razorpay';
+import connectDB from '@/lib/db';
+import Sponsorship from '@/models/Sponsorship';
+import SponsorshipPayment from '@/models/SponsorshipPayment';
+import FamilyMember from '@/models/FamilyMember';
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID!,
@@ -243,6 +247,222 @@ export class RazorpaySubscriptionService {
     } catch (error) {
       console.error('Error verifying webhook signature:', error);
       return false;
+    }
+  }
+
+  /**
+   * Process sponsorship subscription webhook events
+   */
+  static async processSponsorshipWebhook(event: any) {
+    await connectDB();
+    const eventName = event.event;
+    const payload = event.payload;
+
+    switch (eventName) {
+      case 'subscription.authenticated':
+      case 'subscription.activated':
+        if (payload?.subscription?.entity) {
+          await this.handleSubscriptionActivated(payload.subscription.entity);
+        }
+        break;
+
+      case 'subscription.charged':
+        if (payload?.payment?.entity && payload?.subscription?.entity) {
+          await this.handleSubscriptionCharged(payload.payment.entity, payload.subscription.entity);
+          await this.handleFirstPayment(payload.subscription.entity);
+        }
+        break;
+
+      case 'subscription.cancelled':
+        if (payload?.subscription?.entity) {
+          await this.handleSubscriptionCancelled(payload.subscription.entity);
+        }
+        break;
+
+      case 'subscription.paused':
+        if (payload?.subscription?.entity) {
+          await this.handleSubscriptionPaused(payload.subscription.entity);
+        }
+        break;
+
+      case 'subscription.resumed':
+        if (payload?.subscription?.entity) {
+          await this.handleSubscriptionResumed(payload.subscription.entity);
+        }
+        break;
+
+      case 'payment.failed':
+        if (payload?.payment?.entity) {
+          await this.handlePaymentFailed(payload.payment.entity);
+        }
+        break;
+
+      default:
+        console.log('[SPONSORSHIP_WEBHOOK_UNHANDLED_EVENT]', eventName);
+    }
+  }
+
+  static async handleSubscriptionActivated(subscription: any) {
+    try {
+      const sponsorship = await Sponsorship.findOne({ 
+        razorpaySubscriptionId: subscription.id 
+      });
+
+      if (sponsorship) {
+        sponsorship.status = 'active';
+        if (subscription.current_end) {
+          sponsorship.nextPaymentDate = new Date(subscription.current_end * 1000);
+        }
+        await sponsorship.save();
+        console.log('[SPONSORSHIP_ACTIVATED]', subscription.id);
+      }
+    } catch (error) {
+      console.error('[SPONSORSHIP_ACTIVATION_ERROR]', error);
+    }
+  }
+
+  static async handleSubscriptionCharged(payment: any, subscription: any) {
+    try {
+      const sponsorship = await Sponsorship.findOne({ 
+        razorpaySubscriptionId: subscription.id 
+      });
+
+      if (sponsorship) {
+        const sponsorshipPayment = new SponsorshipPayment({
+          sponsorshipId: sponsorship._id,
+          sponsorId: sponsorship.sponsorId,
+          beneficiaryId: sponsorship.beneficiaryId,
+          amount: payment.amount / 100,
+          razorpayPaymentId: payment.id,
+          razorpaySubscriptionId: subscription.id,
+          status: 'paid',
+          paymentDate: new Date(payment.created_at * 1000),
+          dueDate: new Date(subscription.current_start * 1000),
+          paidAt: new Date(payment.created_at * 1000),
+          paymentMethod: payment.method
+        });
+
+        await sponsorshipPayment.save();
+
+        sponsorship.totalPaid += payment.amount / 100;
+        sponsorship.paymentCount += 1;
+        sponsorship.lastPaymentDate = new Date(payment.created_at * 1000);
+        if (subscription.current_end) {
+          sponsorship.nextPaymentDate = new Date(subscription.current_end * 1000);
+        }
+        await sponsorship.save();
+
+        console.log('[SPONSORSHIP_PAYMENT_RECORDED]', payment.id);
+      }
+    } catch (error) {
+      console.error('[SPONSORSHIP_CHARGE_ERROR]', error);
+    }
+  }
+
+  static async handleSubscriptionCancelled(subscription: any) {
+    try {
+      const sponsorship = await Sponsorship.findOne({ 
+        razorpaySubscriptionId: subscription.id 
+      });
+
+      if (sponsorship) {
+        sponsorship.status = 'cancelled';
+        sponsorship.endDate = new Date();
+        await sponsorship.save();
+
+        await FamilyMember.findByIdAndUpdate(sponsorship.beneficiaryId, {
+          'sponsorship.isSponsored': false,
+          'sponsorship.sponsoredAt': null,
+          'sponsorship.sponsorId': null
+        });
+
+        console.log('[SPONSORSHIP_CANCELLED]', subscription.id);
+      }
+    } catch (error) {
+      console.error('[SPONSORSHIP_CANCEL_ERROR]', error);
+    }
+  }
+
+  static async handleSubscriptionPaused(subscription: any) {
+    try {
+      const sponsorship = await Sponsorship.findOne({ 
+        razorpaySubscriptionId: subscription.id 
+      });
+
+      if (sponsorship) {
+        sponsorship.status = 'paused';
+        await sponsorship.save();
+        console.log('[SPONSORSHIP_PAUSED]', subscription.id);
+      }
+    } catch (error) {
+      console.error('[SPONSORSHIP_PAUSE_ERROR]', error);
+    }
+  }
+
+  static async handleSubscriptionResumed(subscription: any) {
+    try {
+      const sponsorship = await Sponsorship.findOne({ 
+        razorpaySubscriptionId: subscription.id 
+      });
+
+      if (sponsorship) {
+        sponsorship.status = 'active';
+        if (subscription.current_end) {
+          sponsorship.nextPaymentDate = new Date(subscription.current_end * 1000);
+        }
+        await sponsorship.save();
+        console.log('[SPONSORSHIP_RESUMED]', subscription.id);
+      }
+    } catch (error) {
+      console.error('[SPONSORSHIP_RESUME_ERROR]', error);
+    }
+  }
+
+  static async handleFirstPayment(subscription: any) {
+    try {
+      const sponsorship = await Sponsorship.findOne({ 
+        razorpaySubscriptionId: subscription.id 
+      });
+
+      if (sponsorship && sponsorship.paymentCount === 1) {
+        await FamilyMember.findByIdAndUpdate(sponsorship.beneficiaryId, {
+          'sponsorship.isSponsored': true,
+          'sponsorship.sponsoredAt': new Date(),
+          'sponsorship.sponsorId': sponsorship.sponsorId
+        });
+
+        console.log('[SPONSORSHIP_FIRST_PAYMENT_PROCESSED]', subscription.id);
+      }
+    } catch (error) {
+      console.error('[SPONSORSHIP_FIRST_PAYMENT_ERROR]', error);
+    }
+  }
+
+  static async handlePaymentFailed(payment: any) {
+    try {
+      const sponsorship = await Sponsorship.findOne({ 
+        razorpaySubscriptionId: payment.subscription_id 
+      });
+
+      if (sponsorship) {
+        const sponsorshipPayment = new SponsorshipPayment({
+          sponsorshipId: sponsorship._id,
+          sponsorId: sponsorship.sponsorId,
+          beneficiaryId: sponsorship.beneficiaryId,
+          amount: payment.amount / 100,
+          razorpayPaymentId: payment.id,
+          razorpaySubscriptionId: payment.subscription_id,
+          status: 'failed',
+          paymentDate: new Date(payment.created_at * 1000),
+          dueDate: new Date(payment.created_at * 1000),
+          failureReason: payment.error_description || 'Payment failed'
+        });
+
+        await sponsorshipPayment.save();
+        console.log('[SPONSORSHIP_PAYMENT_FAILED_RECORDED]', payment.id);
+      }
+    } catch (error) {
+      console.error('[SPONSORSHIP_PAYMENT_FAILED_ERROR]', error);
     }
   }
 }
